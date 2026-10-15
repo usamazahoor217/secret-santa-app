@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import Link from 'next/link';
 import {
   Gift,
   Sparkles,
@@ -14,7 +13,6 @@ import {
   EyeOff,
   CheckCircle2,
   AlertTriangle,
-  ArrowRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {

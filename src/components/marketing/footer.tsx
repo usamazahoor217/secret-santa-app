@@ -1,6 +1,6 @@
 import * as React from 'react';
 import Link from 'next/link';
-import { Gift, Heart } from 'lucide-react';
+import { Gift } from 'lucide-react';
 
 interface FooterProps {
   appUrl: string;

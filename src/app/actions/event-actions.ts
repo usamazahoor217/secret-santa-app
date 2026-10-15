@@ -117,6 +117,7 @@ export async function createEventAndDrawAction(
     // 5. Attempt Supabase Persistence with Fallback
     let usedDatabase = false;
     try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const adminClient = createAdminClient() as any;
 
       // Create dummy/anonymous organizer profile if needed for event association
@@ -287,6 +288,7 @@ export async function getParticipantAssignmentAction(
 
   // Check Supabase if not in memory
   try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const admin = createAdminClient() as any;
     const { data: participant } = await admin
       .from('participants')

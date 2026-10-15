@@ -14,7 +14,6 @@ import {
   ExternalLink,
   Users,
   Calendar,
-  DollarSign,
   AlertCircle,
   ArrowLeft,
 } from 'lucide-react';
@@ -67,19 +66,15 @@ export default function CreateEventPage() {
   const [selectedGiverEmail, setSelectedGiverEmail] = React.useState('');
   const [selectedRestrictedEmail, setSelectedRestrictedEmail] = React.useState('');
 
+  // Derived selections without cascading useEffect renders
+  const effectiveGiverEmail = selectedGiverEmail || (participants[0]?.email ?? '');
+  const effectiveRestrictedEmail = selectedRestrictedEmail || (participants[1]?.email ?? '');
+
   // Submission State
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [errorMsg, setErrorMsg] = React.useState<string | null>(null);
   const [result, setResult] = React.useState<CreateEventResult | null>(null);
   const [copiedId, setCopiedId] = React.useState<string | null>(null);
-
-  // Auto-select dropdown defaults when participants change
-  React.useEffect(() => {
-    if (participants.length >= 2) {
-      if (!selectedGiverEmail) setSelectedGiverEmail(participants[0].email);
-      if (!selectedRestrictedEmail) setSelectedRestrictedEmail(participants[1].email);
-    }
-  }, [participants, selectedGiverEmail, selectedRestrictedEmail]);
 
   const handleAddParticipant = (e: React.FormEvent) => {
     e.preventDefault();
@@ -121,17 +116,17 @@ export default function CreateEventPage() {
   };
 
   const handleAddExclusion = () => {
-    if (!selectedGiverEmail || !selectedRestrictedEmail) return;
+    if (!effectiveGiverEmail || !effectiveRestrictedEmail) return;
 
-    if (selectedGiverEmail === selectedRestrictedEmail) {
+    if (effectiveGiverEmail === effectiveRestrictedEmail) {
       setErrorMsg('A participant cannot be excluded from drawing themselves.');
       return;
     }
 
     const exists = exclusions.some(
       (e) =>
-        e.giverEmail === selectedGiverEmail &&
-        e.restrictedReceiverEmail === selectedRestrictedEmail
+        e.giverEmail === effectiveGiverEmail &&
+        e.restrictedReceiverEmail === effectiveRestrictedEmail
     );
     if (exists) {
       setErrorMsg('This exclusion rule already exists.');
@@ -142,8 +137,8 @@ export default function CreateEventPage() {
     setExclusions((prev) => [
       ...prev,
       {
-        giverEmail: selectedGiverEmail,
-        restrictedReceiverEmail: selectedRestrictedEmail,
+        giverEmail: effectiveGiverEmail,
+        restrictedReceiverEmail: effectiveRestrictedEmail,
       },
     ]);
   };
@@ -319,6 +314,15 @@ export default function CreateEventPage() {
                       />
                     </div>
                   </div>
+
+                  <div>
+                    <Input
+                      label="Holiday Note / Instructions (Optional)"
+                      placeholder="e.g. Handmade gifts encouraged, festive sweaters mandatory!"
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                    />
+                  </div>
                 </CardContent>
               </Card>
 
@@ -420,7 +424,7 @@ export default function CreateEventPage() {
                         Giver
                       </label>
                       <select
-                        value={selectedGiverEmail}
+                        value={effectiveGiverEmail}
                         onChange={(e) => setSelectedGiverEmail(e.target.value)}
                         className="h-11 w-full rounded-[15px] border border-gray-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#0d2818]/20"
                       >
@@ -441,7 +445,7 @@ export default function CreateEventPage() {
                         Restricted Recipient
                       </label>
                       <select
-                        value={selectedRestrictedEmail}
+                        value={effectiveRestrictedEmail}
                         onChange={(e) => setSelectedRestrictedEmail(e.target.value)}
                         className="h-11 w-full rounded-[15px] border border-gray-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#0d2818]/20"
                       >

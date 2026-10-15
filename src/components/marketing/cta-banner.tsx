@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Gift, ArrowRight, Sparkles } from 'lucide-react';
+import { Gift, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface CTABannerProps {

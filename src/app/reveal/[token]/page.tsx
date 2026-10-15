@@ -5,14 +5,12 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   Gift,
-  Sparkles,
   Calendar,
   DollarSign,
   MapPin,
   CheckCircle2,
   Heart,
   Plus,
-  Send,
   Loader2,
   Eye,
 } from 'lucide-react';

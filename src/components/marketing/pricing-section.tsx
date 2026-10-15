@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { Check, Sparkles, ArrowRight, ShieldCheck } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
+import { Check, ArrowRight } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 
 interface PricingProps {

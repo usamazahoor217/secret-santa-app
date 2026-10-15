@@ -80,7 +80,9 @@ describe('End-to-End User Flow: Event Creation, Matching & Magic Reveal', () => 
       exclusions: [],
     };
 
-    const result = await createEventAndDrawAction(invalidInput as any);
+    const result = await createEventAndDrawAction(
+      invalidInput as unknown as Parameters<typeof createEventAndDrawAction>[0]
+    );
     expect(result.success).toBe(false);
     expect(result.message).toContain('Validation failed');
   });
