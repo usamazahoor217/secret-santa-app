@@ -11,7 +11,7 @@ export async function updateSession(request: NextRequest) {
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!supabaseUrl || !supabaseAnonKey) {
-    return supabaseResponse;
+    return { supabaseResponse, user: null };
   }
 
   const supabase = createServerClient<Database>(supabaseUrl, supabaseAnonKey, {

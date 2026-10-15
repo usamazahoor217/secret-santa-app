@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import {
   Gift,
   Sparkles,
@@ -196,16 +197,15 @@ export default function HomePage() {
           </p>
 
           <div className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row">
-            <Button
-              variant="festive"
-              size="lg"
-              onClick={() => {
-                const liveDemoSection = document.getElementById('interactive-demo');
-                liveDemoSection?.scrollIntoView({ behavior: 'smooth' });
-              }}
-            >
-              Organize an Exchange <ArrowRight className="ml-2 h-5 w-5" />
-            </Button>
+            <Link href="/events/new">
+              <Button
+                variant="festive"
+                size="lg"
+                className="w-full sm:w-auto font-bold shadow-lg cursor-pointer"
+              >
+                Organize an Exchange <ArrowRight className="ml-2 h-5 w-5" />
+              </Button>
+            </Link>
             <Button
               variant="outline"
               size="lg"
