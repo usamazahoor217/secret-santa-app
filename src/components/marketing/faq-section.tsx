@@ -10,7 +10,7 @@ export function FAQSection() {
   const faqs = [
     {
       q: 'Can the organizer see who drew whom?',
-      a: 'No! Privacy is our highest priority. The assignments table is protected by PostgreSQL Row Level Security (RLS). Organizers are prevented from viewing matches, ensuring you can participate in the exchange with 100% surprise.',
+      a: 'No! Privacy is our highest priority. The assignments table is protected by a strict anti-spoiler architecture in MySQL. Organizers are prevented from viewing matches, ensuring you can participate in the exchange with 100% surprise.',
     },
     {
       q: 'Do participants need to download an app or create an account?',

@@ -1,25 +1,31 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { updateSession } from '@/lib/supabase/middleware';
 
 export async function middleware(request: NextRequest) {
-  // 1. Session Refresh via Supabase
-  const { supabaseResponse } = await updateSession(request);
-
-  // 2. Subdomain Routing: app. vs root
   const host = request.headers.get('host') || '';
   const url = request.nextUrl.clone();
+  const { pathname } = url;
 
-  const isAppSubdomain = host.startsWith('app.');
+  // Determine if this is an app subdomain request (e.g. app.secretsanta.io or app.localhost:3000)
+  const appDomain = process.env.NEXT_PUBLIC_APP_DOMAIN || 'app.localhost:3000';
+  const isAppSubdomain =
+    host.startsWith('app.') ||
+    host.includes('app.localhost') ||
+    host === appDomain;
 
+  // 1. App Subdomain Routing
   if (isAppSubdomain) {
-    // If user hits app root "app.domain.com/", route them to "/events/new"
-    if (url.pathname === '/') {
+    // If user navigates to the root of the app subdomain (app.domain.com/),
+    // rewrite internally to the event creation wizard / organizer dashboard (/events/new)
+    if (pathname === '/') {
       url.pathname = '/events/new';
       return NextResponse.rewrite(url);
     }
+    return NextResponse.next();
   }
 
-  return supabaseResponse;
+  // 2. Root Domain Routing (Marketing Site)
+  // Root domain serves marketing landing page by default
+  return NextResponse.next();
 }
 
 export const config = {

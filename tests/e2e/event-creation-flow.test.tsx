@@ -10,7 +10,7 @@ describe('UI End-to-End User Flow: Create Group, Add Members, Send Emails', () =
     const actionSpy = vi.spyOn(eventActions, 'createEventAndDrawAction').mockResolvedValue({
       success: true,
       eventId: 'mock-event-uuid-1234',
-      message: 'Secret Santa exchange created successfully! Persisted securely in Supabase.',
+      message: 'Secret Santa exchange created successfully! Persisted securely in MySQL.',
       participantsCount: 4,
       emailsSent: 4,
       inviteLinks: [
