@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Calendar, Users, Mail, ArrowRight, Check } from 'lucide-react';
+import { Calendar, Users, Mail, ArrowRight, Check } from '@/components/ui/icons';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 

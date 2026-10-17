@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { ChevronDown, HelpCircle } from 'lucide-react';
+import { ChevronDown, HelpCircle } from '@/components/ui/icons';
 import { Card } from '@/components/ui/card';
 
 export function FAQSection() {

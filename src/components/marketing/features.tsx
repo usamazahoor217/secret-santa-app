@@ -6,7 +6,7 @@ import {
   Heart,
   Smartphone,
   Sparkles,
-} from 'lucide-react';
+} from '@/components/ui/icons';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 
 export function Features() {
@@ -15,7 +15,7 @@ export function Features() {
       icon: ShieldCheck,
       title: 'Zero-Spoiler Architecture',
       description:
-        'Row Level Security (RLS) locks the assignments table. Even event creators cannot view confidential pairings unless intentionally unsealed.',
+        'Strict anti-spoiler architecture in MySQL locks the assignments table. Even event creators cannot view confidential pairings unless intentionally unsealed.',
       badge: 'Security',
       color: 'bg-[#0d2818]',
     },

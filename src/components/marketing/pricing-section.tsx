@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, ArrowRight } from 'lucide-react';
+import { Check, ArrowRight } from '@/components/ui/icons';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 

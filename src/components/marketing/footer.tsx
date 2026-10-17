@@ -1,6 +1,6 @@
 import * as React from 'react';
 import Link from 'next/link';
-import { Gift } from 'lucide-react';
+import { Gift } from '@/components/ui/icons';
 
 interface FooterProps {
   appUrl: string;

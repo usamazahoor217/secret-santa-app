@@ -16,7 +16,7 @@ import {
   Calendar,
   AlertCircle,
   ArrowLeft,
-} from 'lucide-react';
+} from '@/components/ui/icons';
 import { Button } from '@/components/ui/button';
 import {
   Card,
