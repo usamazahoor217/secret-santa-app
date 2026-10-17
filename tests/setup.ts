@@ -1,6 +1,9 @@
 import '@testing-library/jest-dom/vitest';
+import 'dotenv/config';
 
-// Ensure basic window/environment mock if needed
+process.env.DATABASE_URL =
+  process.env.DATABASE_URL || 'mysql://root:root@localhost:3306/secretsanta';
+
 if (typeof window !== 'undefined') {
   Object.defineProperty(window, 'matchMedia', {
     writable: true,

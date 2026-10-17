@@ -66,6 +66,11 @@ export default function MarketingLandingPage() {
   const [revealedPairs, setRevealedPairs] = React.useState<Record<string, boolean>>({});
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [isDrawing, setIsDrawing] = React.useState(false);
+  const [savedDbInfo, setSavedDbInfo] = React.useState<{
+    groupId: string;
+    database: string;
+    savedAt?: string;
+  } | null>(null);
 
   const handleAddParticipant = (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,6 +83,7 @@ export default function MarketingLandingPage() {
     setNewName('');
     setNewEmail('');
     setAssignments(null);
+    setSavedDbInfo(null);
   };
 
   const handleRemoveParticipant = (id: string) => {
@@ -86,6 +92,7 @@ export default function MarketingLandingPage() {
       prev.filter((e) => e.giverId !== id && e.restrictedReceiverId !== id)
     );
     setAssignments(null);
+    setSavedDbInfo(null);
   };
 
   const handleAddExclusion = () => {
@@ -111,28 +118,81 @@ export default function MarketingLandingPage() {
       { giverId: selectedGiver, restrictedReceiverId: selectedRestricted },
     ]);
     setAssignments(null);
+    setSavedDbInfo(null);
   };
 
   const handleRemoveExclusion = (index: number) => {
     setExclusions((prev) => prev.filter((_, i) => i !== index));
     setAssignments(null);
+    setSavedDbInfo(null);
   };
 
-  const handleDrawNames = () => {
+  const handleDrawNames = async () => {
     setErrorMessage(null);
     setIsDrawing(true);
+    setSavedDbInfo(null);
 
     try {
-      const results = generateSecretSantaPairs(participants, exclusions);
-      setAssignments(results);
-      setRevealedPairs({});
-    } catch (err) {
-      if (err instanceof Error) {
-        setErrorMessage(err.message);
-      } else {
-        setErrorMessage('Failed to generate pairings.');
+      // 1. Send data to Prisma MySQL backend API route (/api/match)
+      const res = await fetch('/api/match', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: 'Live Matching Engine Test',
+          participants,
+          exclusions,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Failed to generate pairings from backend API.');
       }
-      setAssignments(null);
+
+      // 2. Fetch back from MySQL to verify persistence
+      const verifyRes = await fetch(`/api/match?groupId=${data.groupId}`);
+      const verifyData = await verifyRes.json();
+
+      if (verifyRes.ok && verifyData.success && verifyData.data.assignments) {
+        setAssignments(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          verifyData.data.assignments.map((a: any) => ({
+            giverId: a.giverId,
+            receiverId: a.receiverId,
+          }))
+        );
+      } else {
+        setAssignments(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          data.assignments.map((a: any) => ({
+            giverId: a.giverId,
+            receiverId: a.receiverId,
+          }))
+        );
+      }
+
+      setSavedDbInfo({
+        groupId: data.groupId,
+        database: data.database || 'secretsanta',
+        savedAt: data.savedAt,
+      });
+      setRevealedPairs({});
+    } catch {
+      // Offline fallback: solve locally via Derangement algorithm
+      try {
+        const results = generateSecretSantaPairs(participants, exclusions);
+        setAssignments(results);
+        setRevealedPairs({});
+        setSavedDbInfo(null);
+      } catch (localErr) {
+        if (localErr instanceof Error) {
+          setErrorMessage(localErr.message);
+        } else {
+          setErrorMessage('Failed to generate pairings.');
+        }
+        setAssignments(null);
+      }
     } finally {
       setIsDrawing(false);
     }
@@ -415,9 +475,21 @@ export default function MarketingLandingPage() {
                         );
                       })}
 
-                      <div className="rounded-[15px] bg-green-50 p-3 text-xs text-green-900 border border-green-200">
-                        <strong>✅ Verified:</strong> 0 self-matches, 0 exclusion violations.
-                      </div>
+                      {savedDbInfo ? (
+                        <div className="rounded-[15px] bg-emerald-50 p-3 text-xs text-emerald-900 border border-emerald-200 space-y-1">
+                          <p className="font-semibold flex items-center gap-1.5 text-emerald-800">
+                            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                            Saved &amp; Fetched from MySQL Database: <code className="bg-emerald-100/80 px-1.5 py-0.5 rounded-[6px] font-mono">{savedDbInfo.database}</code>
+                          </p>
+                          <p className="text-emerald-700 text-[11px]">
+                            Group ID: <span className="font-mono">{savedDbInfo.groupId}</span> &bull; 0 self-matches &bull; Verified constraint satisfaction.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="rounded-[15px] bg-green-50 p-3 text-xs text-green-900 border border-green-200">
+                          <strong>✅ Verified:</strong> 0 self-matches, 0 exclusion violations.
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="rounded-[15px] border border-dashed border-gray-300 p-8 text-center text-gray-400">

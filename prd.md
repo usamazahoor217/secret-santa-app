@@ -23,23 +23,23 @@ The **Secret Santa Organizer** is a modern, responsive, full-stack web applicati
 flowchart TD
     subgraph Client Layer
         Browser[User Browser / Mobile Client]
-        RootDomain["Root Domain: secretsanta.io (Marketing Landing, Blog, Pricing)"]
+        RootDomain["Root Domain: secretsanta.io (Marketing Landing, Demo, Pricing)"]
         AppSubdomain["App Subdomain: app.secretsanta.io (Dashboard, Events, Wishlists)"]
     end
 
     subgraph Edge & Routing Layer
-        VercelEdge["Next.js Edge Middleware (Subdomain Routing & Auth Guard)"]
+        VercelEdge["Next.js Edge Middleware (Subdomain Routing & Guard)"]
     end
 
     subgraph Application Layer [Next.js App Router]
-        ServerActions["Server Actions & API Routes"]
+        ServerActions["Server Actions & Route Handlers (/api/groups, /api/participants, /api/match)"]
+        PrismaClient["Prisma ORM Client (Singleton Instance)"]
         PairingEngine["Pairing Algorithm (Derangement + Backtracking)"]
         ReactEmail["React Email Engine"]
     end
 
-    subgraph External Services
-        SupabaseAuth["Supabase Auth (Magic Links, OAuth, Session JWT)"]
-        SupabaseDB[("Supabase PostgreSQL (RLS Protected)")]
+    subgraph Database & External Services
+        MySQLDB[("Local MySQL Database: secretsanta (InnoDB, ACID Transactions)")]
         ResendAPI["Resend Email API"]
         StripeAPI["Stripe Billing & Checkout API"]
     end
@@ -50,9 +50,9 @@ flowchart TD
     AppSubdomain --> VercelEdge
 
     VercelEdge --> ServerActions
-    ServerActions --> SupabaseAuth
-    ServerActions --> SupabaseDB
     ServerActions --> PairingEngine
+    ServerActions --> PrismaClient
+    PrismaClient --> MySQLDB
     ServerActions --> ReactEmail
     ReactEmail --> ResendAPI
     ServerActions --> StripeAPI
@@ -62,10 +62,10 @@ flowchart TD
 
 | Layer | Technology | Selection Rationale |
 | :--- | :--- | :--- |
-| **Framework** | **Next.js (App Router)** | Server Components, Server Actions, streaming, fast edge middleware for multi-subdomain routing. |
+| **Framework** | **Next.js (App Router)** | Server Components, Server Actions, route handlers, fast edge middleware for multi-subdomain routing. |
 | **Language** | **TypeScript** | Strict mode enabled for end-to-end type safety across database models, APIs, and client components. |
-| **Styling** | **Tailwind CSS** | Utility-first styling with custom theme enforcing Inter typography and exact 15px border radii. |
-| **Database & Auth** | **Supabase (PostgreSQL)** | Robust relational database with Row Level Security (RLS), real-time capabilities, and native Auth. |
+| **Styling** | **Tailwind CSS** | Utility-first styling with custom theme enforcing Inter typography and exact 15px border radii (`rounded-[15px]`). |
+| **Database & ORM** | **MySQL + Prisma ORM** | High-performance local relational MySQL database connected via Prisma ORM for type-safe queries, migrations, and ACID transactions. |
 | **Email Service** | **Resend + React Email** | High deliverability, type-safe transactional emails with responsive, festive HTML/CSS templates. |
 | **Payments** | **Stripe** | Subscriptions and Checkout Sessions for premium tiers (larger groups, custom branding, priority delivery). |
 | **Icons & Animation** | **Lucide React + Framer Motion** | Lightweight accessible icons and smooth festive interactive reveal animations. |
@@ -130,39 +130,39 @@ sequenceDiagram
     actor Organizer as Event Organizer
     actor Participant as Participant
     participant App as App Frontend (app.)
-    participant DB as Supabase DB
+    participant DB as Prisma ORM & MySQL
     participant Mail as Resend API
 
-    Organizer->>App: 1. Sign In / Register via Magic Link
-    App->>DB: Create / Verify Profile
+    Organizer->>App: 1. Sign In / Register or Create Group
+    App->>DB: Create / Verify User Record
     Organizer->>App: 2. Create Event (Budget, Exchange Date, Rules)
-    App->>DB: Insert Event Record
+    App->>DB: Insert Group Record via Prisma
     Organizer->>App: 3. Add Participants & Exclusion Rules
     App->>DB: Insert Participants & Pair Restrictions
     Organizer->>App: 4. Click "Draw Names"
     App->>App: 5. Execute Derangement Algorithm
-    App->>DB: Store Encrypted / RLS-Secured Assignments
+    App->>DB: Commit Assignments via Prisma $transaction
     App->>Mail: 6. Trigger Resend Transactional Emails
     Mail-->>Participant: 7. Deliver Secret Santa Invitation + Magic Token
     Participant->>App: 8. Open Tokenized Reveal Page
     App-->>Participant: 9. Festive Scratch/Unwrap Animation + Wishlist Details
-    Participant->>App: 10. Submit Own Wishlist & Dietary Notes
-    App->>DB: Update Wishlist Records
+    Participant->>App: 10. Submit Own Wishlist & Gift Preferences
+    App->>DB: Update Wishlist Records in MySQL
 ```
 
 ### 4.1 Persona 1: Event Organizer
-1. **Landing & Authentication:**
-   - Navigates to marketing site -> clicks "Create a Secret Santa" -> redirected to `app.secretsanta.io/login`.
-   - Signs in using Supabase Passwordless Magic Link or Google OAuth.
+1. **Landing & Setup:**
+   - Navigates to marketing site -> tests interactive live matching or clicks "Create a Secret Santa" -> routed to the event creator.
+   - User account / organizer profile is managed and persisted in local MySQL via Prisma ORM.
 2. **Event Creation:**
    - Configures event title (e.g., *"Smith Family Christmas 2026"*), spending limit/currency (e.g., *\$30 USD*), gift exchange date, delivery location (physical address or virtual meet link), and custom message.
 3. **Roster & Constraint Setup:**
-   - Adds participants manually (Name, Email) or pastes CSV roster.
+   - Adds participants manually (Name, Email) or pastes roster.
    - Configures Exclusion Rules (e.g., *"Alice cannot draw Bob"* - spouses / immediate family).
 4. **Drawing Names:**
    - Clicks **"Draw Names"**. System validates feasibility of graph matching.
-   - Automatically dispatches personalized Resend emails containing unique, single-use secure reveal links.
-   - Dashboard monitors real-time delivery status: `Sent`, `Delivered`, `Opened`, `Revealed`.
+   - Dispatches transactional emails via Resend containing unique, single-use secure reveal links.
+   - Real-time delivery status is logged in MySQL `email_logs`.
 5. **Event Management:**
    - Send reminders to participants who haven't viewed their assignment or submitted wishlists.
 
@@ -182,7 +182,7 @@ sequenceDiagram
 1. Free tier supports up to **15 participants** per event with standard email templates.
 2. When the organizer attempts to add more than 15 members or select premium festive templates / SMS notifications:
    - Upgrade modal appears with Stripe Checkout integration.
-   - Webhook updates the event / profile subscription tier in Supabase instantly.
+   - Webhook updates the event / user subscription tier in MySQL instantly.
 
 ---
 
@@ -206,181 +206,218 @@ The matching algorithm is implemented in TypeScript using a constrained derangem
 
 ---
 
-## 6. Database Schema (Supabase PostgreSQL DDL)
+## 6. Database Schema (Prisma ORM & MySQL Relational Models)
 
-```sql
--- Enable UUID extension
-create extension if not exists "uuid-ossp";
+The database architecture is powered by **MySQL (InnoDB engine)** managed declaratively via **Prisma ORM**. It guarantees full ACID transaction guarantees (`prisma.$transaction`) during Secret Santa pairings, cascading foreign-key referential integrity, and anti-spoiler shielding.
 
--- 1. Profiles Table (Extends Supabase auth.users)
-create table public.profiles (
-  id uuid references auth.users(id) on delete cascade primary key,
-  email text not null,
-  full_name text,
-  avatar_url text,
-  stripe_customer_id text,
-  stripe_subscription_status text default 'free',
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  updated_at timestamp with time zone default timezone('utc'::text, now()) not null
-);
+### 6.1 Prisma Schema Definition (`prisma/schema.prisma`)
 
--- 2. Events Table
-create type event_status as enum ('draft', 'drawn', 'completed', 'cancelled');
+```prisma
+datasource db {
+  provider = "mysql"
+}
 
-create table public.events (
-  id uuid default uuid_generate_v4() primary key,
-  organizer_id uuid references public.profiles(id) on delete cascade not null,
-  title text not null,
-  description text,
-  budget_amount numeric(10, 2),
-  budget_currency varchar(3) default 'USD' not null,
-  exchange_date timestamp with time zone,
-  location text,
-  status event_status default 'draft' not null,
-  allow_wishlists boolean default true not null,
-  is_premium boolean default false not null,
-  drawn_at timestamp with time zone,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  updated_at timestamp with time zone default timezone('utc'::text, now()) not null
-);
+generator client {
+  provider = "prisma-client"
+}
 
--- 3. Participants Table
-create table public.participants (
-  id uuid default uuid_generate_v4() primary key,
-  event_id uuid references public.events(id) on delete cascade not null,
-  user_id uuid references public.profiles(id) on delete set null,
-  name text not null,
-  email text not null,
-  invite_token uuid default uuid_generate_v4() not null unique,
-  has_viewed_assignment boolean default false not null,
-  viewed_at timestamp with time zone,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  unique(event_id, email)
-);
+enum EventStatus {
+  DRAFT
+  DRAWN
+  COMPLETED
+  CANCELLED
+}
 
--- 4. Pair Restrictions / Exclusions
-create table public.pair_restrictions (
-  id uuid default uuid_generate_v4() primary key,
-  event_id uuid references public.events(id) on delete cascade not null,
-  giver_participant_id uuid references public.participants(id) on delete cascade not null,
-  restricted_receiver_participant_id uuid references public.participants(id) on delete cascade not null,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  unique(giver_participant_id, restricted_receiver_participant_id),
-  check (giver_participant_id <> restricted_receiver_participant_id)
-);
+enum EmailType {
+  ASSIGNMENT_REVEAL
+  REMINDER
+  WISHLIST_UPDATED
+}
 
--- 5. Assignments (Secret Matches)
-create table public.assignments (
-  id uuid default uuid_generate_v4() primary key,
-  event_id uuid references public.events(id) on delete cascade not null,
-  giver_id uuid references public.participants(id) on delete cascade not null unique,
-  receiver_id uuid references public.participants(id) on delete cascade not null unique,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  check (giver_id <> receiver_id)
-);
+enum EmailStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  FAILED
+}
 
--- 6. Wishlists Table
-create table public.wishlists (
-  id uuid default uuid_generate_v4() primary key,
-  participant_id uuid references public.participants(id) on delete cascade not null unique,
-  notes text,
-  clothing_sizes jsonb default '{}'::jsonb,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  updated_at timestamp with time zone default timezone('utc'::text, now()) not null
-);
+// 1. Users / Organizers
+model User {
+  id                        String        @id @default(uuid())
+  email                     String        @unique
+  name                      String?
+  avatarUrl                 String?
+  stripeCustomerId          String?
+  stripeSubscriptionStatus  String?       @default("free")
+  createdAt                 DateTime      @default(now())
+  updatedAt                 DateTime      @updatedAt
 
--- 7. Wishlist Items Table
-create table public.wishlist_items (
-  id uuid default uuid_generate_v4() primary key,
-  wishlist_id uuid references public.wishlists(id) on delete cascade not null,
-  title text not null,
-  url text,
-  estimated_price numeric(10, 2),
-  priority int default 1 not null,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
-);
+  groups                    Group[]
+  participants              Participant[]
+  payments                  Payment[]
 
--- 8. Email Delivery Audit Logs
-create type email_type as enum ('assignment_reveal', 'reminder', 'wishlist_updated');
-create type email_status as enum ('queued', 'sent', 'delivered', 'failed');
+  @@map("users")
+}
 
-create table public.email_logs (
-  id uuid default uuid_generate_v4() primary key,
-  event_id uuid references public.events(id) on delete cascade not null,
-  participant_id uuid references public.participants(id) on delete cascade not null,
-  resend_email_id text,
-  type email_type not null,
-  status email_status default 'queued' not null,
-  error_message text,
-  sent_at timestamp with time zone default timezone('utc'::text, now()) not null
-);
+// 2. Secret Santa Groups / Events
+model Group {
+  id              String            @id @default(uuid())
+  organizerId     String?
+  title           String
+  description     String?           @db.Text
+  budgetAmount    Decimal?          @db.Decimal(10, 2)
+  budgetCurrency  String            @default("USD")
+  exchangeDate    DateTime?
+  location        String?
+  status          EventStatus       @default(DRAFT)
+  allowWishlists  Boolean           @default(true)
+  isPremium       Boolean           @default(false)
+  drawnAt         DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
 
--- 9. Stripe Subscriptions / Transactions Table
-create table public.payments (
-  id uuid default uuid_generate_v4() primary key,
-  profile_id uuid references public.profiles(id) on delete cascade not null,
-  event_id uuid references public.events(id) on delete set null,
-  stripe_session_id text unique not null,
-  stripe_payment_intent text,
-  amount_cents int not null,
-  currency varchar(3) default 'USD' not null,
-  status text not null,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
-);
+  organizer       User?             @relation(fields: [organizerId], references: [id], onDelete: SetNull)
+  participants    Participant[]
+  restrictions    PairRestriction[]
+  assignments     Assignment[]
+  emailLogs       EmailLog[]
+  payments        Payment[]
 
--- Row Level Security (RLS) Configuration
-alter table public.profiles enable row level security;
-alter table public.events enable row level security;
-alter table public.participants enable row level security;
-alter table public.pair_restrictions enable row level security;
-alter table public.assignments enable row level security;
-alter table public.wishlists enable row level security;
-alter table public.wishlist_items enable row level security;
-alter table public.email_logs enable row level security;
-alter table public.payments enable row level security;
+  @@index([organizerId])
+  @@map("groups")
+}
 
--- Profiles: Users can view and update their own profile
-create policy "Users can view own profile" on public.profiles
-  for select using (auth.uid() = id);
-create policy "Users can update own profile" on public.profiles
-  for update using (auth.uid() = id);
+// 3. Participants
+model Participant {
+  id                    String            @id @default(uuid())
+  groupId               String
+  userId                String?
+  name                  String
+  email                 String
+  inviteToken           String            @unique @default(uuid())
+  hasViewedAssignment  Boolean           @default(false)
+  viewedAt              DateTime?
+  createdAt             DateTime          @default(now())
 
--- Events: Organizers have full CRUD on their events
-create policy "Organizers can view own events" on public.events
-  for select using (auth.uid() = organizer_id);
-create policy "Organizers can insert own events" on public.events
-  for insert with check (auth.uid() = organizer_id);
-create policy "Organizers can update own events" on public.events
-  for update using (auth.uid() = organizer_id);
-create policy "Organizers can delete own events" on public.events
-  for delete using (auth.uid() = organizer_id);
+  group                 Group             @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user                  User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  wishlist              Wishlist?
+  givenAssignment       Assignment?       @relation("GiverAssignment")
+  receivedAssignment    Assignment?       @relation("ReceiverAssignment")
+  
+  givenRestrictions     PairRestriction[] @relation("GiverRestriction")
+  receivedRestrictions  PairRestriction[] @relation("ReceiverRestriction")
+  emailLogs             EmailLog[]
 
--- Participants: Organizers can manage participants
-create policy "Organizers can manage participants" on public.participants
-  for all using (
-    exists (
-      select 1 from public.events
-      where events.id = participants.event_id and events.organizer_id = auth.uid()
-    )
-  );
+  @@unique([groupId, email])
+  @@index([groupId])
+  @@index([inviteToken])
+  @@map("participants")
+}
 
--- Participants: Public read access by unique invite_token (for magic link reveal)
-create policy "Participants can view self by invite_token" on public.participants
-  for select using (true);
+// 4. Pair Restrictions (Exclusions: e.g. Alice cannot give to Bob)
+model PairRestriction {
+  id                              String      @id @default(uuid())
+  groupId                         String
+  giverParticipantId              String
+  restrictedReceiverParticipantId String
+  createdAt                       DateTime    @default(now())
 
--- Pair Restrictions: Organizers can manage restrictions
-create policy "Organizers can manage restrictions" on public.pair_restrictions
-  for all using (
-    exists (
-      select 1 from public.events
-      where events.id = pair_restrictions.event_id and events.organizer_id = auth.uid()
-    )
-  );
+  group                           Group       @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  giver                           Participant @relation("GiverRestriction", fields: [giverParticipantId], references: [id], onDelete: Cascade)
+  restrictedReceiver              Participant @relation("ReceiverRestriction", fields: [restrictedReceiverParticipantId], references: [id], onDelete: Cascade)
 
--- Assignments: High Security Anti-Spoiler Policy
--- Only the recipient themselves via service-role / authenticated token can read their specific assignment.
-create policy "No direct public read on all assignments" on public.assignments
-  for select using (false);
+  @@unique([giverParticipantId, restrictedReceiverParticipantId])
+  @@index([groupId])
+  @@map("pair_restrictions")
+}
+
+// 5. Secret Assignments (Anti-Spoiler Engine)
+model Assignment {
+  id          String      @id @default(uuid())
+  groupId     String
+  giverId     String      @unique
+  receiverId  String      @unique
+  createdAt   DateTime    @default(now())
+
+  group       Group       @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  giver       Participant @relation("GiverAssignment", fields: [giverId], references: [id], onDelete: Cascade)
+  receiver    Participant @relation("ReceiverAssignment", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
+  @@map("assignments")
+}
+
+// 6. Wishlist
+model Wishlist {
+  id             String         @id @default(uuid())
+  participantId  String         @unique
+  notes          String?        @db.Text
+  clothingSizes  String?        @db.Text
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  participant    Participant    @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  items          WishlistItem[]
+
+  @@map("wishlists")
+}
+
+// 7. Wishlist Items
+model WishlistItem {
+  id              String    @id @default(uuid())
+  wishlistId      String
+  title           String
+  url             String?   @db.Text
+  estimatedPrice  Decimal?  @db.Decimal(10, 2)
+  priority        Int       @default(1)
+  createdAt       DateTime  @default(now())
+
+  wishlist        Wishlist  @relation(fields: [wishlistId], references: [id], onDelete: Cascade)
+
+  @@index([wishlistId])
+  @@map("wishlist_items")
+}
+
+// 8. Email Delivery Audit Logs
+model EmailLog {
+  id             String       @id @default(uuid())
+  groupId        String
+  participantId  String
+  resendEmailId  String?
+  type           EmailType
+  status         EmailStatus  @default(QUEUED)
+  errorMessage   String?      @db.Text
+  sentAt         DateTime     @default(now())
+
+  group          Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  participant    Participant  @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
+  @@index([participantId])
+  @@map("email_logs")
+}
+
+// 9. Stripe Subscriptions / Transactions
+model Payment {
+  id                   String    @id @default(uuid())
+  userId               String
+  groupId              String?
+  stripeSessionId      String    @unique
+  stripePaymentIntent  String?
+  amountCents          Int
+  currency             String    @default("USD")
+  status               String
+  createdAt            DateTime  @default(now())
+
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group                Group?    @relation(fields: [groupId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([groupId])
+  @@map("payments")
+}
 ```
 
 ---
@@ -437,10 +474,18 @@ christmas/
 │   │   │   └── settings/
 │   │   │       └── billing/page.tsx
 │   │   └── api/
-│   │       ├── webhooks/
-│   │       │   ├── stripe/route.ts   # Stripe checkout & subscription handler
-│   │       │   └── resend/route.ts   # Email delivery status webhooks
-│   │       └── trpc-or-actions/
+│   │       ├── groups/
+│   │       │   ├── route.ts          # Group CRUD & transaction draw (GET, POST)
+│   │       │   └── [id]/route.ts     # Single group details & delete (GET, DELETE)
+│   │       ├── participants/
+│   │       │   └── route.ts          # Participant management (GET, POST)
+│   │       ├── match/
+│   │       │   └── route.ts          # Real-time Derangement solver & MySQL commit (GET, POST)
+│   │       ├── health/
+│   │       │   └── db/route.ts       # Database connectivity health check (GET)
+│   │       └── webhooks/
+│   │           ├── stripe/route.ts   # Stripe checkout & subscription handler
+│   │           └── resend/route.ts   # Email delivery status webhooks
 │   ├── components/
 │   │   ├── ui/                       # Strict 15px radius, Inter font
 │   │   │   ├── button.tsx
@@ -456,8 +501,12 @@ christmas/
 │   │   │   └── snow-effect.tsx       # Subtle CSS canvas snowfall
 │   │   ├── marketing/
 │   │   │   ├── hero.tsx
-│   │   │   ├── feature-grid.tsx
-│   │   │   └── pricing-card.tsx
+│   │   │   ├── features.tsx
+│   │   │   ├── how-it-works.tsx
+│   │   │   ├── pricing-section.tsx
+│   │   │   ├── faq-section.tsx
+│   │   │   ├── cta-banner.tsx
+│   │   │   └── footer.tsx
 │   │   └── app/
 │   │       ├── participant-form.tsx
 │   │       ├── exclusion-matrix.tsx
@@ -470,11 +519,7 @@ christmas/
 │   │       ├── email-header.tsx
 │   │       └── email-button.tsx
 │   ├── lib/
-│   │   ├── supabase/
-│   │   │   ├── client.ts             # Browser client
-│   │   │   ├── server.ts             # Server components client
-│   │   │   ├── admin.ts              # Service-role privileged client
-│   │   │   └── middleware.ts
+│   │   ├── prisma.ts                 # Prisma Client Singleton (MySQL connection pool)
 │   │   ├── algorithms/
 │   │   │   ├── derangement.ts        # Secret Santa matching solver
 │   │   │   └── validation.ts
@@ -486,18 +531,21 @@ christmas/
 │   │       ├── participant.schema.ts
 │   │       └── wishlist.schema.ts
 │   └── types/
-│       ├── database.types.ts         # Generated Supabase types
-│       └── app.types.ts
+│       ├── app.types.ts
+│       └── event.types.ts
+├── prisma/
+│   └── schema.prisma                 # Declarative MySQL Schema
 └── tests/
     ├── unit/
     │   ├── derangement.test.ts       # Algorithm stress tests
-    │   └── validations.test.ts
+    │   ├── prisma-connection.test.ts # Database health and client tests
+    │   └── stripe-resend.test.ts
     ├── components/
-    │   ├── button.test.tsx
-    │   └── scratch-reveal.test.tsx
+    │   ├── marketing.test.tsx
+    │   └── ui.test.tsx
     └── e2e/
-        ├── event-creation.spec.ts
-        └── participant-reveal.spec.ts
+        ├── event-creation-flow.test.tsx
+        └── server-action-flow.test.ts
 ```
 
 ---
@@ -505,7 +553,7 @@ christmas/
 ## 8. Resend Email Integration & Templates
 
 ### 8.1 Transactional Email Pipeline
-Emails are triggered via Next.js Server Actions utilizing the Resend API with React Email templates:
+Emails are triggered via Next.js Server Actions / API Routes utilizing the Resend API with React Email templates:
 1. **Assignment Notification Email:**
    - Subject: `🎁 Your Secret Santa assignment for [Event Name]!`
    - Content: Festive greeting, spending limit badge, exchange date, and a high-contrast CTA button pointing to `https://app.secretsanta.io/reveal/[unique_invite_token]`.
@@ -530,7 +578,7 @@ Emails are triggered via Next.js Server Actions utilizing the Resend API with Re
 | Audit History | Current Year | Multi-year historical archives |
 
 ### 9.2 Webhook Handling
-- `checkout.session.completed`: Upgrades the target `event_id` or `profile_id` to premium status in Supabase.
+- `checkout.session.completed`: Upgrades the target `groupId` or `userId` to premium status in MySQL.
 - `customer.subscription.deleted`: Gracefully reverts organization features back to standard limits.
 
 ---
@@ -543,41 +591,43 @@ Emails are triggered via Next.js Server Actions utilizing the Resend API with Re
   - Stress test with 1,000 randomized participant groups and varying exclusion matrices.
   - Ensure zero self-matches and zero exclusion collisions.
   - Test graceful error handling on impossible graph constraints (e.g., 2 people excluding each other in a 2-person group).
+- **Prisma & Database Connection Testing:**
+  - Tests database client instantiation, query delegate availability, and diagnostic health check endpoint.
 
 ### 10.2 Component & Style Regression Testing
 - Verify all interactive controls strictly render `border-radius: 15px`.
-- Accessibility testing using `@axe-core/react`.
+- Accessibility testing and mobile viewport responsiveness.
 
-### 10.3 End-to-End (E2E) Testing (Playwright)
-- Flow 1: Create an event -> Add 5 participants -> Configure 2 exclusions -> Draw names.
-- Flow 2: Access invite link -> Scratch/reveal assignment -> Add 3 items to wishlist.
+### 10.3 End-to-End (E2E) Testing (Playwright / Vitest)
+- Flow 1: Create an event -> Add participants -> Configure exclusions -> Draw names.
+- Flow 2: Access invite link -> Scratch/reveal assignment -> Add items to wishlist.
 - Flow 3: Stripe checkout flow in test mode.
 
 ---
 
 ## 11. Security, Privacy & Compliance
 
-1. **Row Level Security (RLS):** All database operations run through authenticated client sessions with strict row isolation.
-2. **Anti-Spoiler Protections:** The `assignments` table is completely shielded from direct public/authenticated SELECTs. Assignments can only be queried through an authenticated tokenized RPC procedure returning solely the caller's match.
-3. **Environment Security:** Resend API keys, Supabase Service Role keys, and Stripe Secret keys are restricted exclusively to server-side executions.
+1. **Relational Data Integrity:** ACID transactions via `prisma.$transaction` ensure atomic commits for group draws and pairings.
+2. **Anti-Spoiler Protections:** The `assignments` table is shielded from organizer snooping; participants only query their specific assignment through their unguessable `inviteToken`.
+3. **Environment Security:** Resend API keys, Database credentials, and Stripe Secret keys are restricted exclusively to server-side executions.
 4. **Input Sanitization:** All payload inputs are verified and stripped using strict Zod schemas.
 
 ---
 
 ## 12. Implementation Roadmap
 
-- [x] **Phase 1: Architecture & PRD Generation** (Current)
-- [ ] **Phase 2: Project Scaffolding & Design System Foundations**
+- [x] **Phase 1: Architecture & PRD Generation** (Updated for MySQL + Prisma)
+- [x] **Phase 2: Project Scaffolding & Design System Foundations**
   - Next.js 15, TypeScript, Tailwind CSS with 15px radius tokens, Inter font setup.
   - Base components (Button, Input, Card, Modal).
-- [ ] **Phase 3: Supabase Integration & Authentication**
-  - Database migrations, RLS setup, Auth session providers.
-- [ ] **Phase 4: Derangement Algorithm & Event Wizard**
+- [x] **Phase 3: MySQL & Prisma ORM Integration**
+  - Database schema, migrations/db push, Prisma client singleton, API CRUD routes.
+- [x] **Phase 4: Derangement Algorithm & Event Creation Flow**
   - Backtracking matching algorithm with comprehensive Vitest suite.
   - Participant management & exclusion matrix UI.
-- [ ] **Phase 5: Email Automation (Resend) & Reveal Flow**
-  - React Email templates, token verification, festive scratch-reveal component.
-- [ ] **Phase 6: Stripe Monetization & Webhooks**
-  - Checkout session integration and premium limits enforcement.
-- [ ] **Phase 7: End-to-End Testing & Production Deployment**
-  - Playwright E2E suites, multi-domain Vercel configuration.
+- [x] **Phase 5: Email Automation (Resend) & Reveal Flow**
+  - React Email templates, token verification, assignment reveal flow.
+- [x] **Phase 6: Marketing Landing Page & Live Interactive Solver**
+  - Responsive marketing landing page connected live to Prisma MySQL backend.
+- [x] **Phase 7: End-to-End Testing & Verification**
+  - Complete test suite, database health verification, zero vulnerabilities.

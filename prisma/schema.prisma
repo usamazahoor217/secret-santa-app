@@ -1,0 +1,204 @@
+// Prisma Schema for Secret Santa Organizer (MySQL Provider)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+enum EventStatus {
+  DRAFT
+  DRAWN
+  COMPLETED
+  CANCELLED
+}
+
+enum EmailType {
+  ASSIGNMENT_REVEAL
+  REMINDER
+  WISHLIST_UPDATED
+}
+
+enum EmailStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  FAILED
+}
+
+// 1. Users / Organizers
+model User {
+  id                        String    @id @default(uuid())
+  email                     String    @unique
+  name                      String?
+  avatarUrl                 String?
+  stripeCustomerId          String?
+  stripeSubscriptionStatus  String?   @default("free")
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  groups                    Group[]
+  participants              Participant[]
+  payments                  Payment[]
+
+  @@map("users")
+}
+
+// 2. Secret Santa Groups / Events
+model Group {
+  id              String         @id @default(uuid())
+  organizerId     String?
+  title           String
+  description     String?        @db.Text
+  budgetAmount    Decimal?       @db.Decimal(10, 2)
+  budgetCurrency  String         @default("USD")
+  exchangeDate    DateTime?
+  location        String?
+  status          EventStatus    @default(DRAFT)
+  allowWishlists  Boolean        @default(true)
+  isPremium       Boolean        @default(false)
+  drawnAt         DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  organizer       User?          @relation(fields: [organizerId], references: [id], onDelete: SetNull)
+  participants    Participant[]
+  restrictions    PairRestriction[]
+  assignments     Assignment[]
+  emailLogs       EmailLog[]
+  payments        Payment[]
+
+  @@index([organizerId])
+  @@map("groups")
+}
+
+// 3. Participants
+model Participant {
+  id                    String            @id @default(uuid())
+  groupId               String
+  userId                String?
+  name                  String
+  email                 String
+  inviteToken           String            @unique @default(uuid())
+  hasViewedAssignment  Boolean           @default(false)
+  viewedAt              DateTime?
+  createdAt             DateTime          @default(now())
+
+  group                 Group             @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user                  User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  wishlist              Wishlist?
+  givenAssignment       Assignment?       @relation("GiverAssignment")
+  receivedAssignment    Assignment?       @relation("ReceiverAssignment")
+  
+  givenRestrictions     PairRestriction[] @relation("GiverRestriction")
+  receivedRestrictions  PairRestriction[] @relation("ReceiverRestriction")
+  emailLogs             EmailLog[]
+
+  @@unique([groupId, email])
+  @@index([groupId])
+  @@index([inviteToken])
+  @@map("participants")
+}
+
+// 4. Pair Restrictions (Exclusions: e.g. Alice cannot give to Bob)
+model PairRestriction {
+  id                              String      @id @default(uuid())
+  groupId                         String
+  giverParticipantId              String
+  restrictedReceiverParticipantId String
+  createdAt                       DateTime    @default(now())
+
+  group                           Group       @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  giver                           Participant @relation("GiverRestriction", fields: [giverParticipantId], references: [id], onDelete: Cascade)
+  restrictedReceiver              Participant @relation("ReceiverRestriction", fields: [restrictedReceiverParticipantId], references: [id], onDelete: Cascade)
+
+  @@unique([giverParticipantId, restrictedReceiverParticipantId])
+  @@index([groupId])
+  @@map("pair_restrictions")
+}
+
+// 5. Secret Assignments (Anti-Spoiler)
+model Assignment {
+  id          String      @id @default(uuid())
+  groupId     String
+  giverId     String      @unique
+  receiverId  String      @unique
+  createdAt   DateTime    @default(now())
+
+  group       Group       @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  giver       Participant @relation("GiverAssignment", fields: [giverId], references: [id], onDelete: Cascade)
+  receiver    Participant @relation("ReceiverAssignment", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
+  @@map("assignments")
+}
+
+// 6. Wishlist
+model Wishlist {
+  id             String         @id @default(uuid())
+  participantId  String         @unique
+  notes          String?        @db.Text
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  participant    Participant    @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  items          WishlistItem[]
+
+  @@map("wishlists")
+}
+
+// 7. Wishlist Items
+model WishlistItem {
+  id              String    @id @default(uuid())
+  wishlistId      String
+  title           String
+  url             String?   @db.Text
+  estimatedPrice  Decimal?  @db.Decimal(10, 2)
+  priority        Int       @default(1)
+  createdAt       DateTime  @default(now())
+
+  wishlist        Wishlist  @relation(fields: [wishlistId], references: [id], onDelete: Cascade)
+
+  @@index([wishlistId])
+  @@map("wishlist_items")
+}
+
+// 8. Email Delivery Audit Logs
+model EmailLog {
+  id             String       @id @default(uuid())
+  groupId        String
+  participantId  String
+  resendEmailId  String?
+  type           EmailType
+  status         EmailStatus  @default(QUEUED)
+  errorMessage   String?      @db.Text
+  sentAt         DateTime     @default(now())
+
+  group          Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  participant    Participant  @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
+  @@index([participantId])
+  @@map("email_logs")
+}
+
+// 9. Stripe Payments
+model Payment {
+  id                  String    @id @default(uuid())
+  userId              String?
+  groupId             String?
+  stripeSessionId     String    @unique
+  stripePaymentIntent String?
+  amountCents         Int
+  currency            String    @default("USD")
+  status              String
+  createdAt           DateTime  @default(now())
+
+  user                User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  group               Group?    @relation(fields: [groupId], references: [id], onDelete: SetNull)
+
+  @@map("payments")
+}
