@@ -51,6 +51,21 @@ export default function CreateEventPage() {
   const [location, setLocation] = React.useState('');
   const [description, setDescription] = React.useState('');
 
+  // Dynamic root marketing homepage URL across subdomains
+  const [homeUrl, setHomeUrl] = React.useState<string>('/');
+
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const host = window.location.host;
+      if (host.startsWith('app.') || host.includes('app.localhost')) {
+        const rootHost = host.replace(/^app\./, '');
+        setHomeUrl(`${window.location.protocol}//${rootHost}/`);
+      } else {
+        setHomeUrl('/');
+      }
+    }
+  }, []);
+
   // Participants
   const [participants, setParticipants] = React.useState<FormParticipant[]>([
     { id: '1', name: 'Alice Smith', email: 'alice@example.com' },
@@ -205,19 +220,25 @@ export default function CreateEventPage() {
       {/* Navigation Header */}
       <header className="sticky top-0 z-50 border-b border-gray-200/80 bg-white/90 backdrop-blur-md">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
-          <Link href="/" className="flex items-center gap-2.5 text-[#0d2818] font-bold">
+          <a
+            href={homeUrl}
+            className="flex items-center gap-2.5 text-[#0d2818] font-bold hover:text-[#d90429] transition-colors cursor-pointer"
+          >
             <ArrowLeft className="h-4 w-4" />
             <span>Back to Home</span>
-          </Link>
+          </a>
 
-          <div className="flex items-center gap-2">
+          <a
+            href={homeUrl}
+            className="flex items-center gap-2 hover:opacity-90 transition-opacity cursor-pointer"
+          >
             <div className="flex h-9 w-9 items-center justify-center rounded-[15px] bg-[#d90429] text-white shadow-xs">
               <Gift className="h-5 w-5" />
             </div>
             <span className="font-extrabold text-[#0d2818] text-lg hidden sm:inline">
               SecretSanta<span className="text-[#d90429]">.io</span>
             </span>
-          </div>
+          </a>
         </div>
       </header>
 
@@ -626,11 +647,12 @@ export default function CreateEventPage() {
                   >
                     Organize Another Event
                   </Button>
-                  <Link href="/" className="w-full">
-                    <Button variant="outline" className="w-full">
-                      Return to Homepage
-                    </Button>
-                  </Link>
+                  <a
+                    href={homeUrl}
+                    className="w-full inline-flex items-center justify-center rounded-[15px] border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-xs hover:bg-gray-50 transition-colors"
+                  >
+                    Return to Homepage
+                  </a>
                 </div>
               </CardContent>
             </Card>

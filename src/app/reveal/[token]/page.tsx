@@ -37,6 +37,21 @@ function ParticipantRevealContent() {
   const [data, setData] = React.useState<RevealAssignmentResult | null>(null);
   const [revealed, setRevealed] = React.useState(false);
 
+  // Dynamic root marketing homepage URL across subdomains
+  const [homeUrl, setHomeUrl] = React.useState<string>('/');
+
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const host = window.location.host;
+      if (host.startsWith('app.') || host.includes('app.localhost')) {
+        const rootHost = host.replace(/^app\./, '');
+        setHomeUrl(`${window.location.protocol}//${rootHost}/`);
+      } else {
+        setHomeUrl('/');
+      }
+    }
+  }, []);
+
   // Wishlist state
   const [wishlistItems, setWishlistItems] = React.useState<string[]>([]);
   const [newWish, setNewWish] = React.useState('');
@@ -112,11 +127,12 @@ function ParticipantRevealContent() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Link href="/">
-              <Button variant="festive" className="w-full">
-                Go to Homepage
-              </Button>
-            </Link>
+            <a
+              href={homeUrl}
+              className="w-full inline-flex items-center justify-center rounded-[15px] bg-[#d90429] px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-[#b80323] transition-colors"
+            >
+              Go to Homepage
+            </a>
           </CardContent>
         </Card>
       </div>
@@ -127,14 +143,14 @@ function ParticipantRevealContent() {
     <div className="min-h-screen bg-gradient-to-b from-[#fdf2f4] via-[#f8f9fa] to-white text-[#181924] flex flex-col font-sans">
       <header className="border-b border-gray-200/80 bg-white/80 backdrop-blur-md py-4 px-6">
         <div className="mx-auto max-w-4xl flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <a href={homeUrl} className="flex items-center gap-2 hover:opacity-90 transition-opacity cursor-pointer">
             <div className="flex h-9 w-9 items-center justify-center rounded-[15px] bg-[#d90429] text-white">
               <Gift className="h-5 w-5" />
             </div>
             <span className="font-extrabold text-[#0d2818] text-lg">
               SecretSanta<span className="text-[#d90429]">.io</span>
             </span>
-          </div>
+          </a>
           <span className="text-xs font-semibold rounded-[15px] bg-green-100 text-green-800 px-3 py-1">
             Private Assignment
           </span>
