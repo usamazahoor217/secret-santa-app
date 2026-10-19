@@ -278,7 +278,13 @@ export async function getParticipantAssignmentAction(
         group: true,
         givenAssignment: {
           include: {
-            receiver: true,
+            receiver: {
+              include: {
+                wishlist: {
+                  include: { items: true },
+                },
+              },
+            },
           },
         },
       },
@@ -293,6 +299,9 @@ export async function getParticipantAssignmentAction(
         },
       });
 
+      const receiverWishlist =
+        participant.givenAssignment?.receiver.wishlist?.items.map((i) => i.title) || [];
+
       return {
         success: true,
         eventTitle: participant.group.title,
@@ -302,7 +311,7 @@ export async function getParticipantAssignmentAction(
         location: participant.group.location,
         giverName: participant.name,
         receiverName: participant.givenAssignment?.receiver.name || 'Your secret match',
-        receiverWishlist: [],
+        receiverWishlist,
       };
     }
   } catch {
@@ -319,6 +328,45 @@ export async function submitWishlistAction(
   token: string,
   wishlistItems: string[]
 ): Promise<{ success: boolean; message: string }> {
+  try {
+    const participant = await prisma.participant.findUnique({
+      where: { inviteToken: token },
+      include: { wishlist: true },
+    });
+
+    if (participant) {
+      if (participant.wishlist) {
+        await prisma.wishlistItem.deleteMany({
+          where: { wishlistId: participant.wishlist.id },
+        });
+        if (wishlistItems.length > 0) {
+          await prisma.wishlistItem.createMany({
+            data: wishlistItems.map((title, idx) => ({
+              wishlistId: participant.wishlist!.id,
+              title,
+              priority: idx + 1,
+            })),
+          });
+        }
+      } else {
+        await prisma.wishlist.create({
+          data: {
+            participantId: participant.id,
+            items: {
+              create: wishlistItems.map((title, idx) => ({
+                title,
+                priority: idx + 1,
+              })),
+            },
+          },
+        });
+      }
+      return { success: true, message: 'Wishlist saved to MySQL database successfully!' };
+    }
+  } catch {
+    // Fallback if database is offline
+  }
+
   for (const event of localFallbackStore.values()) {
     const participant = event.participants.find((p) => p.inviteToken === token);
     if (participant) {
