@@ -13,6 +13,7 @@ import {
   Plus,
   Loader2,
   Eye,
+  Sparkles,
 } from '@/components/ui/icons';
 import { Button } from '@/components/ui/button';
 import {
@@ -245,6 +246,31 @@ function ParticipantRevealContent() {
                     </p>
                   </div>
                 )}
+
+                {/* Receiver Wishlist Section */}
+                <div className="rounded-[15px] bg-emerald-50/60 border border-emerald-200 p-4 text-left space-y-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-900 flex items-center gap-1.5">
+                    <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+                    {data.receiverName}&apos;s Wishlist:
+                  </h4>
+                  {data.receiverWishlist && data.receiverWishlist.length > 0 ? (
+                    <ul className="space-y-1.5">
+                      {data.receiverWishlist.map((item, idx) => (
+                        <li
+                          key={idx}
+                          className="text-xs text-emerald-950 font-medium flex items-center gap-2 bg-white/80 px-3 py-1.5 rounded-[15px] border border-emerald-100"
+                        >
+                          <Gift className="h-3 w-3 text-rose-500 shrink-0" />
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-xs text-emerald-700/80 italic">
+                      {data.receiverName} hasn&apos;t added any wishlist items yet. You can pick a thoughtful holiday surprise!
+                    </p>
+                  )}
+                </div>
               </div>
             )}
           </CardContent>
