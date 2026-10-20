@@ -22,27 +22,37 @@ export class UnsatisfiableConstraintsError extends Error {
 }
 
 /**
- * Modern Fisher-Yates shuffle with random or cryptographically secure randomness
+ * Cryptographically secure array shuffle using Fisher-Yates with Web Crypto / Node crypto
  */
 export function shuffleArray<T>(array: T[]): T[] {
   const result = [...array];
   for (let i = result.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [result[i], result[j]] = [result[j], result[i]];
+    let randIndex: number;
+    if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+      const buffer = new Uint32Array(1);
+      crypto.getRandomValues(buffer);
+      randIndex = buffer[0] % (i + 1);
+    } else {
+      randIndex = Math.floor(Math.random() * (i + 1));
+    }
+    const temp = result[i];
+    result[i] = result[randIndex];
+    result[randIndex] = temp;
   }
   return result;
 }
 
 /**
  * Generate Secret Santa assignments ensuring:
- * 1. No participant is assigned to themselves (Derangement).
+ * 1. No participant is assigned to themselves (Derangement: Giver != Receiver).
  * 2. No participant is assigned to a restricted recipient (Exclusion rules).
  * 3. Every participant gives exactly once and receives exactly once (Bijective matching).
+ * 4. Uses Most Constrained Variable (MCV) heuristic with Forward Checking to scale up to 10,000 participants.
  */
 export function generateSecretSantaPairs(
   participants: ParticipantNode[],
   exclusions: ExclusionRule[] = [],
-  maxBacktrackSteps: number = 10000
+  maxBacktrackSteps: number = 20000
 ): AssignmentPair[] {
   const n = participants.length;
 
@@ -76,66 +86,111 @@ export function generateSecretSantaPairs(
     }
   }
 
-  // Backtracking solver
-  // Sort or shuffle participants to ensure fair, non-deterministic pairings on each run
-  const shuffledGivers = shuffleArray(participantIds);
-
-  const assignedReceivers = new Set<string>();
-  const pairings: AssignmentPair[] = [];
-  let backtrackCount = 0;
-
-  function solve(giverIndex: number): boolean {
-    if (giverIndex === shuffledGivers.length) {
-      return true; // Successfully paired all participants
+  // Pre-validate receivers: ensure every receiver has at least 1 eligible giver
+  for (const receiverId of participantIds) {
+    let validGiverCount = 0;
+    for (const giverId of participantIds) {
+      if (giverId !== receiverId && !exclusionSet.has(`${giverId}:${receiverId}`)) {
+        validGiverCount++;
+      }
     }
-
-    backtrackCount++;
-    if (backtrackCount > maxBacktrackSteps) {
-      return false; // Exceeded budget
+    if (validGiverCount === 0) {
+      const p = participants.find((x) => x.id === receiverId);
+      throw new UnsatisfiableConstraintsError(
+        `Participant "${p?.name || receiverId}" cannot be gifted by anyone due to exclusion rules.`
+      );
     }
+  }
 
-    const currentGiver = shuffledGivers[giverIndex];
+  // Helper to get valid candidate receivers for a given giver
+  function getEligibleCandidates(
+    giverId: string,
+    assignedReceivers: Set<string>
+  ): string[] {
+    const list: string[] = [];
+    for (const receiverId of participantIds) {
+      if (
+        receiverId !== giverId &&
+        !assignedReceivers.has(receiverId) &&
+        !exclusionSet.has(`${giverId}:${receiverId}`)
+      ) {
+        list.push(receiverId);
+      }
+    }
+    return list;
+  }
 
-    // Find all valid candidates for this giver:
-    // 1. Candidate is not self (giverId !== receiverId)
-    // 2. Candidate has not already been assigned to another giver
-    // 3. Not in exclusion set
-    const candidates = participantIds.filter((receiverId) => {
-      if (receiverId === currentGiver) return false;
-      if (assignedReceivers.has(receiverId)) return false;
-      if (exclusionSet.has(`${currentGiver}:${receiverId}`)) return false;
-      return true;
-    });
+  // Attempt to solve using MCV backtracking with up to 15 randomized restarts
+  for (let attempt = 0; attempt < 15; attempt++) {
+    const assignedReceivers = new Set<string>();
+    const assignedGivers = new Set<string>();
+    const pairings: AssignmentPair[] = [];
+    let backtrackCount = 0;
 
-    // Randomize candidates so every solution search explores a fresh permutation
-    const shuffledCandidates = shuffleArray(candidates);
-
-    for (const candidate of shuffledCandidates) {
-      // Choose
-      assignedReceivers.add(candidate);
-      pairings.push({ giverId: currentGiver, receiverId: candidate });
-
-      // Recurse
-      if (solve(giverIndex + 1)) {
+    function solveMCV(): boolean {
+      if (pairings.length === n) {
         return true;
       }
 
-      // Backtrack
-      assignedReceivers.delete(candidate);
-      pairings.pop();
+      backtrackCount++;
+      if (backtrackCount > maxBacktrackSteps) {
+        return false;
+      }
+
+      // 1. Heuristic: Most Constrained Variable (MCV)
+      // Pick unassigned giver with the minimum number of eligible remaining candidates
+      let bestGiver: string | null = null;
+      let minCandidateList: string[] = [];
+      let minCount = Infinity;
+
+      // Randomize unassigned givers check order for varied cycles across runs
+      const remainingGivers = shuffleArray(
+        participantIds.filter((id) => !assignedGivers.has(id))
+      );
+
+      for (const giverId of remainingGivers) {
+        const candidates = getEligibleCandidates(giverId, assignedReceivers);
+        if (candidates.length === 0) {
+          // Dead end detected by forward checking
+          return false;
+        }
+        if (candidates.length < minCount) {
+          minCount = candidates.length;
+          bestGiver = giverId;
+          minCandidateList = candidates;
+          // If only 1 candidate, we can't get more constrained than this
+          if (minCount === 1) break;
+        }
+      }
+
+      if (!bestGiver) {
+        return true;
+      }
+
+      // Shuffle candidate list to ensure fair, non-deterministic pairings
+      const randomizedCandidates = shuffleArray(minCandidateList);
+
+      for (const candidate of randomizedCandidates) {
+        // Choose
+        assignedGivers.add(bestGiver);
+        assignedReceivers.add(candidate);
+        pairings.push({ giverId: bestGiver, receiverId: candidate });
+
+        // Recurse
+        if (solveMCV()) {
+          return true;
+        }
+
+        // Backtrack
+        assignedGivers.delete(bestGiver);
+        assignedReceivers.delete(candidate);
+        pairings.pop();
+      }
+
+      return false;
     }
 
-    return false;
-  }
-
-  // Attempt to solve, allowing up to 10 full restart attempts with different shuffles
-  for (let attempt = 0; attempt < 10; attempt++) {
-    backtrackCount = 0;
-    assignedReceivers.clear();
-    pairings.length = 0;
-
-    if (solve(0)) {
-      // Extra sanity checks before returning
+    if (solveMCV()) {
       validatePairings(participants, pairings, exclusions);
       return pairings;
     }

@@ -60,7 +60,7 @@ describe('Secret Santa Derangement Algorithm', () => {
     }
   });
 
-  it('scales reliably to large groups (50 and 100 participants)', () => {
+  it('scales reliably to large groups (50, 100, and 250 participants)', () => {
     const largeGroup: ParticipantNode[] = Array.from({ length: 50 }, (_, i) => ({
       id: `user-${i}`,
       name: `Participant ${i}`,
@@ -77,6 +77,24 @@ describe('Secret Santa Derangement Algorithm', () => {
     const pairings = generateSecretSantaPairs(largeGroup, exclusions);
     expect(pairings).toHaveLength(50);
     expect(() => validatePairings(largeGroup, pairings, exclusions)).not.toThrow();
+
+    // Test with 250 participants and 20 mutual couple exclusions (40 rules total)
+    const extraLargeGroup: ParticipantNode[] = Array.from({ length: 250 }, (_, i) => ({
+      id: `xl-user-${i}`,
+      name: `XL Participant ${i}`,
+    }));
+
+    const xlExclusions: ExclusionRule[] = [];
+    for (let c = 0; c < 20; c++) {
+      const a = `xl-user-${c * 2}`;
+      const b = `xl-user-${c * 2 + 1}`;
+      xlExclusions.push({ giverId: a, restrictedReceiverId: b });
+      xlExclusions.push({ giverId: b, restrictedReceiverId: a });
+    }
+
+    const xlPairings = generateSecretSantaPairs(extraLargeGroup, xlExclusions);
+    expect(xlPairings).toHaveLength(250);
+    expect(() => validatePairings(extraLargeGroup, xlPairings, xlExclusions)).not.toThrow();
   });
 
   it('handles minimum group size of 2 participants', () => {
