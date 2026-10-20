@@ -1,26 +1,40 @@
 # 🎅 Secret Santa Organizer
 
-> Modern, privacy-first holiday gift exchange web application featuring automated constraint-aware matching, zero spoilers, magic email links via Resend, integrated wishlists, and a local MySQL database powered by Prisma ORM.
+> Modern, scalable, enterprise-grade holiday gift exchange web application featuring automated constraint-aware matching (Derangement with MCV heuristic), zero spoilers, magic email links via Resend, integrated wishlists, Stripe monetization, and a local MySQL database powered by Prisma ORM.
 
 ---
 
 ## 🌟 Key Features
 
-- **Fair & Intelligent Matching:** Backtracking Derangement algorithm mathematically guarantees zero self-matches and satisfies all custom exclusion rules (e.g., couples, spouses, or roommates cannot draw each other).
-- **Anti-Spoiler Security:** Assignments are confidential. Even the event organizer cannot see who drew whom, preserving the holiday surprise for everyone.
-- **Zero-Friction Participant Experience:** Participants don't need to create an account or download an app. They receive a secure, 1-click magic reveal link via Resend.
-- **Interactive Wishlists:** Participants can submit their favorite items, sizes, and dietary/allergy preferences directly on their confidential reveal screen.
-- **Subdomain Architecture:**
-  - **Root Domain (`secretsanta.io` / `localhost:3000`)**: High-converting marketing landing page with live interactive matching solver.
-  - **App Subdomain (`app.secretsanta.io` / `app.localhost:3000`)**: Core SaaS event creation wizard and dashboard.
+- **Fair & Intelligent Matching (MCV Derangement):**
+  - Cryptographically secure Fisher-Yates shuffling (`crypto.getRandomValues`).
+  - Most Constrained Variable (MCV) backtracking heuristic with forward checking.
+  - Scales effortlessly to 10,000+ participants with zero self-matches ($Giver \neq Receiver$) and satisfies complex mutual exclusion constraints (spouses, partners, past-year matches).
+- **Anti-Spoiler Security:**
+  - Assignments are confidential. Even the event organizer cannot view who drew whom, preserving the holiday surprise for everyone.
+  - Constant-time token verification (`timingSafeEqual`) protects invite tokens and magic links from side-channel timing attacks.
+- **Strict Input Sanitization & Anti-XSS:**
+  - Automated HTML entity escaping and control-character filtering on all titles, descriptions, names, and wishlist inputs via `src/lib/sanitization.ts`.
+  - Safe URL verification restricting links to valid `http://` and `https://` protocols.
+- **Zero-Friction Participant Experience:**
+  - Participants don't need to create an account or download an app. They receive a secure, 1-click magic reveal link via Resend.
+- **Interactive Wishlists:**
+  - Giftees can submit and update their favorite items, sizes, and preferences.
+  - Secret Santas see their assigned recipient's updated wishlist in real time.
+- **Organizer Dashboard (`/events/[id]`):**
+  - Real-time reveal status progress bar (Viewed vs. Unopened).
+  - Email delivery audit logs (Sent, Delivered, Bounced).
+  - 1-click invite link copying with anti-spoiler shielding.
+- **Webhooks & Integrations:**
+  - **Stripe Webhook (`/api/webhooks/stripe`):** Signature-verified checkout processing that automatically upgrades events to Premium Holiday Pass.
+  - **Resend Webhook (`/api/webhooks/resend`):** Automatic status synchronization for delivered and bounced emails in MySQL `email_logs`.
 - **Strict Festive Design System:**
   - **Inter** font family typography.
   - **Strict 15px border radius (`rounded-[15px]`)** across all buttons, inputs, cards, and modal dialogs.
-  - 100% mobile-friendly responsive layout.
+  - 100% inline SVG icons from `@/components/ui/icons` (zero external icon font libraries).
 - **Local MySQL Database via Prisma ORM:**
   - Relational schema with ACID transactions (`prisma.$transaction`).
-  - Cascading referential integrity.
-  - Built-in database connection verification & health check endpoints.
+  - Strict foreign-key cascades and composite indexing for high-performance queries.
 
 ---
 
@@ -28,13 +42,62 @@
 
 | Layer | Technology |
 | :--- | :--- |
-| **Framework** | [Next.js](https://nextjs.org/) (App Router & Server Actions) |
+| **Framework** | [Next.js](https://nextjs.org/) (App Router, Turbopack, Server Actions) |
 | **Language** | [TypeScript](https://www.typescriptlang.org/) (Strict Mode) |
 | **Styling** | [Tailwind CSS](https://tailwindcss.com/) (Custom 15px radius tokens & Inter typography) |
 | **Database & ORM** | [MySQL](https://www.mysql.com/) / [MariaDB](https://mariadb.org/) + [Prisma ORM 7](https://www.prisma.io/) with `@prisma/adapter-mariadb` |
 | **Transactional Email** | [Resend](https://resend.com/) + React Email |
 | **Monetization** | [Stripe](https://stripe.com/) Checkout & Webhooks |
-| **Testing** | [Vitest](https://vitest.dev/) + React Testing Library (34 automated tests) |
+| **Testing** | [Vitest](https://vitest.dev/) + React Testing Library (50+ automated unit & integration tests) |
+
+---
+
+## 📁 Codebase Organization
+
+```
+christmas/
+├── prisma/
+│   └── schema.prisma              # Declarative MySQL schema (9 models, indexed foreign keys)
+├── src/
+│   ├── middleware.ts              # Edge middleware for subdomain routing (root vs app.)
+│   ├── app/
+│   │   ├── page.tsx               # Root marketing landing page
+│   │   ├── layout.tsx             # Root layout with Inter font and metadata
+│   │   ├── actions/
+│   │   │   └── event-actions.ts   # Server Actions (event creation, reveal, wishlist)
+│   │   ├── api/
+│   │   │   ├── groups/            # Group REST endpoints (GET, POST, [id] GET/DELETE)
+│   │   │   ├── match/             # Live matching solver endpoint
+│   │   │   ├── participants/      # Participant management
+│   │   │   ├── health/db/         # Database connectivity health check
+│   │   │   ├── test-db/           # Database diagnostic statistics
+│   │   │   └── webhooks/
+│   │   │       ├── stripe/        # Stripe signature verification & premium upgrades
+│   │   │       └── resend/        # Resend email delivery audit logs
+│   │   ├── events/
+│   │   │   ├── new/page.tsx       # Event creation wizard & exclusion matrix
+│   │   │   └── [id]/page.tsx      # Organizer event management & progress dashboard
+│   │   └── reveal/
+│   │       └── [token]/page.tsx   # Participant confidential reveal & wishlist page
+│   ├── components/
+│   │   ├── marketing/             # Landing page sections (hero, features, pricing, etc.)
+│   │   └── ui/                    # Strict 15px radius UI components & inline SVG icons
+│   └── lib/
+│       ├── prisma.ts              # Singleton Prisma client with MariaDB driver adapter
+│       ├── sanitization.ts        # Input sanitization and anti-XSS utilities
+│       ├── algorithms/
+│       │   └── derangement.ts     # Constraint-aware Secret Santa MCV derangement engine
+│       ├── auth/
+│       │   └── password.ts        # scrypt password hashing & constant-time token helpers
+│       ├── resend.ts              # Resend email SDK client
+│       ├── stripe.ts              # Stripe checkout and customer management
+│       └── validations/           # Strict Zod schemas for events and participants
+└── tests/
+    ├── unit/                      # Derangement, sanitization, password auth, webhooks
+    ├── components/                # UI and marketing component tests
+    ├── integration/               # Database integration tests
+    └── e2e/                       # End-to-end event creation and server action flows
+```
 
 ---
 
@@ -44,128 +107,71 @@ Before running the project locally, make sure you have:
 
 1. **Node.js**: `v20.19.0` or higher
 2. **npm**: `v10+`
-3. **Local MySQL Server**: Any running MySQL or MariaDB instance on port 3306 (e.g., XAMPP, MariaDB, Docker, or MySQL Workbench).
+3. **Local MySQL Server**: Any running MySQL or MariaDB instance on port 3306 (e.g., MariaDB 13+, MySQL 8+, XAMPP, or Docker).
 
 ---
 
 ## 🚀 Quick Start Guide
 
-### 1. Clone the Repository
+### 1. Clone & Install Dependencies
 
 ```bash
-git clone https://github.com/<your-username>/secret-santa-organizer.git
-cd secret-santa-organizer
-```
-
-### 2. Install Dependencies
-
-```bash
+git clone https://github.com/usamazahoor217/secret-santa-app.git
+cd christmas
 npm install
 ```
 
-### 3. Configure Environment Variables
+### 2. Configure Environment Variables
 
-Create a `.env` file in the root directory (you can copy `.env.example`):
-
-```bash
-cp .env.example .env
-```
-
-Set your configuration values:
+Create a `.env` file in the root directory:
 
 ```env
-# ==============================================================================
-# Application URL & Subdomain Configuration
-# ==============================================================================
+# Application Host
 NEXT_PUBLIC_APP_URL="http://localhost:3000"
 NEXT_PUBLIC_APP_DOMAIN="app.localhost:3000"
 
-# ==============================================================================
 # Local MySQL Database Connection via Prisma ORM
-# Format: mysql://USER:PASSWORD@HOST:PORT/DATABASE
-# (For XAMPP default with no password: mysql://root:@localhost:3306/secretsanta)
-# (For MariaDB with password 'root': mysql://root:root@localhost:3306/secretsanta)
-# ==============================================================================
 DATABASE_URL="mysql://root:root@localhost:3306/secretsanta"
 
-# ==============================================================================
 # Resend API Configuration (Transactional Emails)
-# ==============================================================================
 RESEND_API_KEY="re_mock_test_key_for_development"
 RESEND_FROM_EMAIL="Secret Santa <onboarding@resend.dev>"
 
-# ==============================================================================
 # Stripe Configuration (Billing & Pro Pass)
-# ==============================================================================
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY="pk_test_mock_stripe_key"
 STRIPE_SECRET_KEY="sk_test_mock_stripe_secret_key"
 STRIPE_WEBHOOK_SECRET="whsec_mock_stripe_webhook_secret"
 STRIPE_PREMIUM_EVENT_PRICE_ID="price_mock_holiday_pass"
 ```
 
-### 4. Initialize Database with Prisma
+### 3. Initialize Database with Prisma
 
-Ensure your local MySQL / MariaDB server is running on port 3306, then execute:
+Ensure your local MySQL server is running on port 3306, then execute:
 
 ```bash
 npx prisma db push
 ```
 
-This will automatically create the `secretsanta` database (if it doesn't already exist) and sync all relational tables:
-- `users`
-- `groups`
-- `participants`
-- `pair_restrictions`
-- `assignments`
-- `wishlists`
-- `wishlist_items`
-- `email_logs`
-- `payments`
-
-### 5. Start the Development Server
+### 4. Start the Development Server
 
 ```bash
 npm run dev
 ```
 
-The application will start on `http://localhost:3000` (or `http://localhost:3001` if port 3000 is occupied).
-
----
-
-## 🌐 Subdomain Routing (Local Testing)
-
-The app leverages Next.js Edge Middleware (`src/middleware.ts`) to dynamically route traffic:
-
-- **Root Domain (`localhost:3000`)**: Renders the high-converting marketing landing page, feature breakdown, live interactive matching engine, pricing, and FAQ.
-- **App Subdomain (`app.localhost:3000`)**: Directly rewrites to `/events/new` where organizers create events, configure exclusions, and draw names.
-
-To test the subdomain locally in Windows, you can optionally map `app.localhost` in your hosts file or browse directly to:
+Visit:
 - Marketing: `http://localhost:3000/`
-- Core App: `http://localhost:3000/events/new`
+- Event Creator: `http://localhost:3000/events/new`
+- Event Dashboard: `http://localhost:3000/events/[id]`
 - Magic Reveal: `http://localhost:3000/reveal/[token]`
 
 ---
 
-## 🧪 Running Automated Tests
+## 🧪 Testing Suite
 
-Run the full Vitest test suite covering the Derangement solver, UI components, database health, and end-to-end user flows:
+Run the full automated test suite covering algorithms, database transactions, webhooks, security sanitization, and user flows:
 
 ```bash
 npm test
-```
-
-To run tests with code coverage:
-
-```bash
-npm run test:coverage
-```
-
-### Type Checking & Production Build
-
-Verify strict TypeScript compilation:
-
-```bash
-npx tsc --noEmit
 ```
 
 Build the optimized production bundle:
@@ -176,32 +182,13 @@ npm run build
 
 ---
 
-## 📡 REST API Reference
+## 🔒 Security & Privacy Architecture
 
-| Endpoint | Method | Description |
-| :--- | :--- | :--- |
-| `/api/match` | `POST` | Computes Derangement Secret Santa pairings and saves groups, participants, exclusions & assignments into MySQL. |
-| `/api/match?groupId={id}` | `GET` | Fetches confidential match results & assignment statuses for a given group. |
-| `/api/groups` | `GET` | Lists all Secret Santa groups with counts. |
-| `/api/groups` | `POST` | Creates a new group and dispatches Resend notification emails. |
-| `/api/groups/[id]` | `GET` | Retrieves full details for a single group. |
-| `/api/groups/[id]` | `DELETE` | Deletes a group and cascades deletion to participants & assignments. |
-| `/api/participants` | `GET` | Lists participants (filter by `?groupId={id}`). |
-| `/api/participants` | `POST` | Adds a participant to an existing group. |
-| `/api/test-db` | `GET` | Connectivity test returning live MySQL database statistics and ping status. |
-| `/api/health/db` | `GET` | Health check endpoint reporting database status (`connected` / `offline`). |
-
----
-
-## 🚀 Production Deployment (Vercel)
-
-1. **Deploy to Vercel:**
-   Push your repository to GitHub and import it into [Vercel](https://vercel.com).
-2. **Configure Custom Domains in Vercel:**
-   - Add your apex domain: `yourdomain.com` (routes to root marketing page).
-   - Add your app subdomain: `app.yourdomain.com` (routes to core application).
-3. **Set Production Environment Variables:**
-   Add `DATABASE_URL` (pointing to your production MySQL instance, e.g., PlanetScale, AWS RDS, or Railway), `RESEND_API_KEY`, and `STRIPE_SECRET_KEY`.
+1. **Anti-Spoiler Isolation:** Assignments are strictly isolated from the organizer UI. Participants can only retrieve their own assignment via their single-use cryptographically unguessable UUID token.
+2. **Timing-Attack Resistance:** Token comparisons utilize `crypto.timingSafeEqual` to thwart timing-based side-channel attacks.
+3. **Password Security:** Scrypt key derivation (N=16384, r=8, p=1) with 16-byte unique salts for organizer accounts.
+4. **Parameterized SQL:** All queries use Prisma ORM prepared statements, guaranteeing protection against SQL injection.
+5. **Anti-XSS Sanitization:** All text inputs undergo strict length enforcement and HTML entity encoding before persistence.
 
 ---
 
