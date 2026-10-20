@@ -7,6 +7,7 @@ import {
   type ExclusionRule,
 } from '@/lib/algorithms/derangement';
 import { sendAssignmentEmail } from '@/lib/resend';
+import { cleanPlainText } from '@/lib/sanitization';
 
 // GET /api/groups - List all groups
 export async function GET() {
@@ -61,11 +62,17 @@ export async function POST(request: NextRequest) {
       exclusions,
     } = parsed.data;
 
+    // Sanitize user inputs
+    const cleanTitle = cleanPlainText(title, 200);
+    const cleanDescription = description ? cleanPlainText(description, 2000) : null;
+    const cleanLocation = location ? cleanPlainText(location, 255) : null;
+    const cleanCurrency = budgetCurrency ? cleanPlainText(budgetCurrency, 10).toUpperCase() : 'USD';
+
     // Build participant nodes with tokens
     const participantNodes: (ParticipantNode & { inviteToken: string })[] =
       participants.map((p) => ({
         id: p.id || crypto.randomUUID(),
-        name: p.name.trim(),
+        name: cleanPlainText(p.name, 100),
         email: p.email.toLowerCase().trim(),
         inviteToken: crypto.randomUUID(),
       }));
@@ -96,12 +103,12 @@ export async function POST(request: NextRequest) {
     const newGroup = await prisma.$transaction(async (tx) => {
       const group = await tx.group.create({
         data: {
-          title,
-          description: description || null,
+          title: cleanTitle,
+          description: cleanDescription,
           budgetAmount: budgetAmount ? budgetAmount : null,
-          budgetCurrency: budgetCurrency || 'USD',
+          budgetCurrency: cleanCurrency,
           exchangeDate: exchangeDate ? new Date(exchangeDate) : null,
-          location: location || null,
+          location: cleanLocation,
           status: 'DRAWN',
           drawnAt: new Date(),
           participants: {

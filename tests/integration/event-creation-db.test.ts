@@ -62,6 +62,7 @@ describe('Event Creation Integration Test (Action + MySQL Database)', () => {
         participants: true,
         assignments: true,
         restrictions: true,
+        emailLogs: true,
       },
     });
 
@@ -71,6 +72,7 @@ describe('Event Creation Integration Test (Action + MySQL Database)', () => {
     expect(dbGroup?.participants).toHaveLength(4);
     expect(dbGroup?.assignments).toHaveLength(4);
     expect(dbGroup?.restrictions).toHaveLength(1);
+    expect(dbGroup?.emailLogs).toHaveLength(4);
 
     // Verify Derangement rules: No one gives to themselves
     dbGroup?.assignments.forEach((assignment) => {

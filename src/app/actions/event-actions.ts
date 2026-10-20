@@ -8,34 +8,7 @@ import {
 } from '@/lib/algorithms/derangement';
 import { sendAssignmentEmail } from '@/lib/resend';
 import { prisma } from '@/lib/prisma';
-
-// In-memory fallback store for local testing/development when live DB is offline
-interface StoredEvent {
-  id: string;
-  title: string;
-  description?: string | null;
-  budgetAmount?: number | null;
-  budgetCurrency: string;
-  exchangeDate?: string | null;
-  location?: string | null;
-  status: 'draft' | 'drawn' | 'completed';
-  drawnAt: string;
-  participants: {
-    id: string;
-    name: string;
-    email: string;
-    inviteToken: string;
-    hasViewedAssignment: boolean;
-    viewedAt?: string | null;
-  }[];
-  assignments: {
-    giverId: string;
-    receiverId: string;
-  }[];
-  wishlists: Record<string, { notes: string; items: string[] }>;
-}
-
-const localFallbackStore = new Map<string, StoredEvent>();
+import { cleanPlainText, sanitizeString } from '@/lib/sanitization';
 
 export interface CreateEventResult {
   success: boolean;
@@ -56,7 +29,7 @@ export async function createEventAndDrawAction(
   rawInput: CreateEventInput
 ): Promise<CreateEventResult> {
   try {
-    // 1. Validate Input
+    // 1. Validate Input with Zod
     const parsed = createEventSchema.safeParse(rawInput);
     if (!parsed.success) {
       return {
@@ -77,11 +50,17 @@ export async function createEventAndDrawAction(
       exclusions,
     } = parsed.data;
 
-    // 2. Prepare Participant Nodes with Tokens
+    // 2. Sanitize user-provided text fields (anti-XSS)
+    const cleanTitle = cleanPlainText(title, 200);
+    const cleanDescription = description ? cleanPlainText(description, 2000) : null;
+    const cleanLocation = location ? cleanPlainText(location, 255) : null;
+    const cleanCurrency = budgetCurrency ? cleanPlainText(budgetCurrency, 10).toUpperCase() : 'USD';
+
+    // 3. Prepare Participant Nodes with Tokens
     const participantNodes: (ParticipantNode & { inviteToken: string })[] =
       participants.map((p) => ({
         id: p.id || crypto.randomUUID(),
-        name: p.name.trim(),
+        name: cleanPlainText(p.name, 100),
         email: p.email.toLowerCase().trim(),
         inviteToken: crypto.randomUUID(),
       }));
@@ -105,89 +84,62 @@ export async function createEventAndDrawAction(
       }
     }
 
-    // 3. Execute Secret Santa Derangement Algorithm
+    // 4. Execute Secret Santa Derangement Algorithm with MCV
     const pairings = generateSecretSantaPairs(participantNodes, mappedExclusions);
 
-    // 4. Determine Host Base URL for Reveal Links
+    // 5. Determine Host Base URL for Reveal Links
     const baseUrl =
-      process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001';
+      process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
     const eventId = crypto.randomUUID();
 
-    // 5. Attempt Local MySQL Persistence via Prisma with Fallback
-    let usedDatabase = false;
-    try {
-      await prisma.$transaction(async (tx) => {
-        await tx.group.create({
-          data: {
-            id: eventId,
-            title,
-            description: description || null,
-            budgetAmount: budgetAmount ? budgetAmount : null,
-            budgetCurrency: budgetCurrency || 'USD',
-            exchangeDate: exchangeDate ? new Date(exchangeDate) : null,
-            location: location || null,
-            status: 'DRAWN',
-            drawnAt: new Date(),
-            participants: {
-              create: participantNodes.map((p) => ({
-                id: p.id,
-                name: p.name,
-                email: p.email!,
-                inviteToken: p.inviteToken,
-              })),
-            },
-          },
-        });
-
-        if (mappedExclusions.length > 0) {
-          await tx.pairRestriction.createMany({
-            data: mappedExclusions.map((r) => ({
-              groupId: eventId,
-              giverParticipantId: r.giverId,
-              restrictedReceiverParticipantId: r.restrictedReceiverId,
+    // 6. Strict Atomic Persistence in MySQL via Prisma $transaction
+    await prisma.$transaction(async (tx) => {
+      // Create Event Group with all participants
+      await tx.group.create({
+        data: {
+          id: eventId,
+          title: cleanTitle,
+          description: cleanDescription,
+          budgetAmount: budgetAmount ? budgetAmount : null,
+          budgetCurrency: cleanCurrency,
+          exchangeDate: exchangeDate ? new Date(exchangeDate) : null,
+          location: cleanLocation,
+          status: 'DRAWN',
+          drawnAt: new Date(),
+          participants: {
+            create: participantNodes.map((p) => ({
+              id: p.id,
+              name: p.name,
+              email: p.email!,
+              inviteToken: p.inviteToken,
             })),
-          });
-        }
+          },
+        },
+      });
 
-        await tx.assignment.createMany({
-          data: pairings.map((pair) => ({
+      // Insert Exclusion Rules if any
+      if (mappedExclusions.length > 0) {
+        await tx.pairRestriction.createMany({
+          data: mappedExclusions.map((r) => ({
             groupId: eventId,
-            giverId: pair.giverId,
-            receiverId: pair.receiverId,
+            giverParticipantId: r.giverId,
+            restrictedReceiverParticipantId: r.restrictedReceiverId,
           })),
         });
-      });
-      usedDatabase = true;
-    } catch {
-      // In local dev/test or when live DB is not running, fallback to memory
-      usedDatabase = false;
-    }
+      }
 
-    // Save in local in-memory fallback store
-    localFallbackStore.set(eventId, {
-      id: eventId,
-      title,
-      description,
-      budgetAmount,
-      budgetCurrency: budgetCurrency || 'USD',
-      exchangeDate,
-      location,
-      status: 'drawn',
-      drawnAt: new Date().toISOString(),
-      participants: participantNodes.map((p) => ({
-        id: p.id,
-        name: p.name,
-        email: p.email!,
-        inviteToken: p.inviteToken,
-        hasViewedAssignment: false,
-      })),
-      assignments: pairings,
-      wishlists: {},
+      // Insert Bijective Secret Assignments
+      await tx.assignment.createMany({
+        data: pairings.map((pair) => ({
+          groupId: eventId,
+          giverId: pair.giverId,
+          receiverId: pair.receiverId,
+        })),
+      });
     });
 
-    // 6. Trigger Resend Assignment Emails
-    let emailsSent = 0;
+    // 7. Prepare Reveal Invite Links
     const inviteLinks = participantNodes.map((p) => ({
       participantId: p.id,
       name: p.name,
@@ -195,35 +147,74 @@ export async function createEventAndDrawAction(
       revealUrl: `${baseUrl}/reveal/${p.inviteToken}`,
     }));
 
+    // 8. Trigger Resend Assignment Emails and Record Email Audit Logs
+    let emailsSent = 0;
+    const emailLogRecords: {
+      groupId: string;
+      participantId: string;
+      resendEmailId?: string | null;
+      type: 'ASSIGNMENT_REVEAL';
+      status: 'SENT' | 'FAILED';
+      errorMessage?: string | null;
+    }[] = [];
+
     for (const link of inviteLinks) {
       try {
-        await sendAssignmentEmail({
+        const sendResult = await sendAssignmentEmail({
           toEmail: link.email,
           recipientName: link.name,
-          eventTitle: title,
+          eventTitle: cleanTitle,
           budgetAmount,
-          budgetCurrency,
+          budgetCurrency: cleanCurrency,
           exchangeDate,
           revealUrl: link.revealUrl,
         });
+
         emailsSent++;
-      } catch {
-        // Log Resend error gracefully - in test/demo mode mock keys may safely simulate
+        emailLogRecords.push({
+          groupId: eventId,
+          participantId: link.participantId,
+          resendEmailId: sendResult?.data?.id || null,
+          type: 'ASSIGNMENT_REVEAL',
+          status: 'SENT',
+        });
+      } catch (emailErr) {
+        // Record failed email log in MySQL for organizer visibility
+        emailLogRecords.push({
+          groupId: eventId,
+          participantId: link.participantId,
+          resendEmailId: null,
+          type: 'ASSIGNMENT_REVEAL',
+          status: 'FAILED',
+          errorMessage: emailErr instanceof Error ? emailErr.message : 'Email delivery failed',
+        });
+      }
+    }
+
+    // Persist email delivery audit logs in MySQL
+    if (emailLogRecords.length > 0) {
+      try {
+        await prisma.emailLog.createMany({
+          data: emailLogRecords,
+        });
+      } catch (logErr) {
+        console.warn('[EventAction] Failed to write email delivery logs:', logErr);
       }
     }
 
     return {
       success: true,
       eventId,
-      message: `Secret Santa exchange created successfully! ${usedDatabase ? 'Persisted securely in Supabase.' : 'Generated with anti-spoiler protection.'}`,
+      message: 'Secret Santa exchange created successfully! Persisted securely in MySQL with anti-spoiler protection.',
       participantsCount: participantNodes.length,
       emailsSent: emailsSent > 0 ? emailsSent : participantNodes.length,
       inviteLinks,
     };
   } catch (err) {
+    console.error('[EventAction:createEventAndDrawAction] Error:', err);
     return {
       success: false,
-      message: err instanceof Error ? err.message : 'An unexpected error occurred.',
+      message: err instanceof Error ? err.message : 'Database error: Unable to create Secret Santa event. Please try again.',
     };
   }
 }
@@ -244,36 +235,17 @@ export interface RevealAssignmentResult {
 export async function getParticipantAssignmentAction(
   token: string
 ): Promise<RevealAssignmentResult> {
-  // Check memory store first
-  for (const event of localFallbackStore.values()) {
-    const participant = event.participants.find((p) => p.inviteToken === token);
-    if (participant) {
-      participant.hasViewedAssignment = true;
-      participant.viewedAt = new Date().toISOString();
-
-      const pair = event.assignments.find((a) => a.giverId === participant.id);
-      const receiver = event.participants.find((p) => p.id === pair?.receiverId);
-
-      const wishlistObj = receiver ? event.wishlists[receiver.id] : undefined;
-
-      return {
-        success: true,
-        eventTitle: event.title,
-        budgetAmount: event.budgetAmount,
-        budgetCurrency: event.budgetCurrency,
-        exchangeDate: event.exchangeDate,
-        location: event.location,
-        giverName: participant.name,
-        receiverName: receiver?.name || 'Your secret match',
-        receiverWishlist: wishlistObj?.items || [],
-      };
-    }
+  const cleanToken = cleanPlainText(token, 100);
+  if (!cleanToken) {
+    return {
+      success: false,
+      message: 'Invalid or missing invite token.',
+    };
   }
 
-  // Check Prisma MySQL DB if not in memory
   try {
     const participant = await prisma.participant.findUnique({
-      where: { inviteToken: token },
+      where: { inviteToken: cleanToken },
       include: {
         group: true,
         givenAssignment: {
@@ -290,7 +262,15 @@ export async function getParticipantAssignmentAction(
       },
     });
 
-    if (participant) {
+    if (!participant) {
+      return {
+        success: false,
+        message: 'Invalid or expired invite token. Please contact your event organizer.',
+      };
+    }
+
+    // Mark assignment as viewed in MySQL if first time
+    if (!participant.hasViewedAssignment) {
       await prisma.participant.update({
         where: { id: participant.id },
         data: {
@@ -298,85 +278,100 @@ export async function getParticipantAssignmentAction(
           viewedAt: new Date(),
         },
       });
-
-      const receiverWishlist =
-        participant.givenAssignment?.receiver.wishlist?.items.map((i) => i.title) || [];
-
-      return {
-        success: true,
-        eventTitle: participant.group.title,
-        budgetAmount: participant.group.budgetAmount ? Number(participant.group.budgetAmount) : null,
-        budgetCurrency: participant.group.budgetCurrency || 'USD',
-        exchangeDate: participant.group.exchangeDate ? participant.group.exchangeDate.toISOString() : null,
-        location: participant.group.location,
-        giverName: participant.name,
-        receiverName: participant.givenAssignment?.receiver.name || 'Your secret match',
-        receiverWishlist,
-      };
     }
-  } catch {
-    // Ignore database error if not connected or not found
-  }
 
-  return {
-    success: false,
-    message: 'Invalid or expired invite token. Please contact your event organizer.',
-  };
+    const receiverWishlist =
+      participant.givenAssignment?.receiver.wishlist?.items.map((i) => i.title) || [];
+
+    return {
+      success: true,
+      eventTitle: participant.group.title,
+      budgetAmount: participant.group.budgetAmount ? Number(participant.group.budgetAmount) : null,
+      budgetCurrency: participant.group.budgetCurrency || 'USD',
+      exchangeDate: participant.group.exchangeDate ? participant.group.exchangeDate.toISOString() : null,
+      location: participant.group.location,
+      giverName: participant.name,
+      receiverName: participant.givenAssignment?.receiver.name || 'Your secret match',
+      receiverWishlist,
+    };
+  } catch (err) {
+    console.error('[EventAction:getParticipantAssignmentAction] Error:', err);
+    return {
+      success: false,
+      message: 'Could not retrieve your assignment due to a server error. Please try again.',
+    };
+  }
 }
 
 export async function submitWishlistAction(
   token: string,
   wishlistItems: string[]
 ): Promise<{ success: boolean; message: string }> {
+  const cleanToken = cleanPlainText(token, 100);
+  if (!cleanToken) {
+    return {
+      success: false,
+      message: 'Invalid or missing invite token.',
+    };
+  }
+
   try {
     const participant = await prisma.participant.findUnique({
-      where: { inviteToken: token },
+      where: { inviteToken: cleanToken },
       include: { wishlist: true },
     });
 
-    if (participant) {
-      if (participant.wishlist) {
-        await prisma.wishlistItem.deleteMany({
-          where: { wishlistId: participant.wishlist.id },
-        });
-        if (wishlistItems.length > 0) {
-          await prisma.wishlistItem.createMany({
-            data: wishlistItems.map((title, idx) => ({
-              wishlistId: participant.wishlist!.id,
-              title,
-              priority: idx + 1,
-            })),
-          });
-        }
-      } else {
-        await prisma.wishlist.create({
+    if (!participant) {
+      return {
+        success: false,
+        message: 'Invalid or expired invite token. Please contact your event organizer.',
+      };
+    }
+
+    // Sanitize wishlist item strings
+    const sanitizedItems = Array.isArray(wishlistItems)
+      ? wishlistItems
+          .map((i) => cleanPlainText(i, 255))
+          .filter((i) => i.length > 0)
+      : [];
+
+    await prisma.$transaction(async (tx) => {
+      let wishlistId = participant.wishlist?.id;
+
+      if (!wishlistId) {
+        const newWishlist = await tx.wishlist.create({
           data: {
             participantId: participant.id,
-            items: {
-              create: wishlistItems.map((title, idx) => ({
-                title,
-                priority: idx + 1,
-              })),
-            },
           },
         });
+        wishlistId = newWishlist.id;
+      } else {
+        // Clear old items to replace with updated list
+        await tx.wishlistItem.deleteMany({
+          where: { wishlistId },
+        });
       }
-      return { success: true, message: 'Wishlist saved to MySQL database successfully!' };
-    }
-  } catch {
-    // Fallback if database is offline
-  }
 
-  for (const event of localFallbackStore.values()) {
-    const participant = event.participants.find((p) => p.inviteToken === token);
-    if (participant) {
-      event.wishlists[participant.id] = {
-        notes: '',
-        items: wishlistItems,
-      };
-      return { success: true, message: 'Wishlist saved successfully!' };
-    }
-  }
+      if (sanitizedItems.length > 0) {
+        await tx.wishlistItem.createMany({
+          data: sanitizedItems.map((title, idx) => ({
+            wishlistId: wishlistId!,
+            title,
+            priority: idx + 1,
+          })),
+        });
+      }
+    });
 
-  return { success: true, message: 'Wishlist saved!' };
+    return {
+      success: true,
+      message: 'Wishlist saved to database successfully!',
+    };
+  } catch (err) {
+    console.error('[EventAction:submitWishlistAction] Error:', err);
+    return {
+      success: false,
+      message: 'Failed to update wishlist due to a server error. Please try again.',
+    };
+  }
 }
