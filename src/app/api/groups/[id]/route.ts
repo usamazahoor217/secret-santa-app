@@ -16,6 +16,7 @@ export async function GET(
             id: true,
             name: true,
             email: true,
+            inviteToken: true,
             hasViewedAssignment: true,
             viewedAt: true,
             createdAt: true,
